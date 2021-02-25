@@ -1,0 +1,96 @@
+---
+title: "Mplus as a knitr engine in Rmarkdown"
+author: "Rich Jones"
+date: "2/25/2021"
+output: 
+   html_document: 
+   css: "/Users/rnj/Dropbox/ado/plus/m/markstat.css"
+self_contained: TRUE
+---
+
+# Run Mplus from within  Rmarkdown 
+
+Need to set up mplus as an engine for `knitr`. I am hacking my way through this:
+
+**Code chunks in my Rmd**
+
+You might not want the Stata line
+
+```{r include=TRUE}
+   knitr::opts_chunk$set(engine.path = list(
+      stata = "/Applications/Stata/StataMP.app/Contents/MacOS/stata-mp" ,
+      mplus = "/Applications/Mplus/mplus"
+   ))
+```
+
+```{r include=TRUE}
+  knitr::knit_engines$set(mplus = function(options) {
+    code <- paste(options$code, collapse = "\n")
+    fileConn<-file("formplus.inp")
+    writeLines(code, fileConn)
+    close(fileConn)
+    out  <- system2("/Applications/Mplus/mplus", "formplus.inp")
+    fileConnOutput <- file("formplus.out")
+    mplusOutput <- readLines(fileConnOutput)
+    knitr::engine_output(options, code, mplusOutput)
+})
+```
+
+# Use `MplusAutomation` to prepare data
+
+First get some data
+
+```{r}
+#install.packages("palmerpenguins")
+library(palmerpenguins)
+df <- penguins
+str(df)
+df <- df[,c("body_mass_g","flipper_length_mm")]
+str(df)
+```
+Now load up MplusAutomation package
+```{r}
+#install.packages("MplusAutomation")
+library(MplusAutomation)
+MplusAutomation::prepareMplusData(df,"pp.dat",interactive="FALSE")
+```
+
+Here's a picture of what the next chunk of my `rmd` file looks like
+
+![Figure 1. Isn't it amazing](Mplus-from-rmarkdown-penguins.png)
+
+Now specify and run a simple Mplus model in **mplus/Rmarkdown**
+
+About variable names. The prepared `pp.dat` file is just data, no
+variable names just like Mplus wants it. Programmer has to keep track
+of the order, and that is why it is so nice that `MplusAutomation::prepareMplusData`
+produces that shell of an Mplus input file. But importantly, Mplus 
+will accept data with >8 characters but will only report the first 8
+in output. It is therefore better to use short variable names when
+working with Mplus. I am just going to use different names
+in the code below that are short. Mplus will also make these
+all uppercase in output. 
+```{mplus}
+TITLE:     Palmer penguins body mass and flipper length
+DATA:      FILE = pp.dat; 
+VARIABLE:  NAMES = weight flipper ; 
+           MISSING = . ; 
+MODEL:     weight on flipper ;
+```
+
+Check model in **R**
+```{r}
+model <- glm(body_mass_g ~ flipper_length_mm , data=df)
+summary(model)
+```
+Kind of interesting they are not exactly the same. 
+
+Now I use the MplusAutomation::readModels to get useful information from the output back to **R**
+
+```{r}
+penguinsResults <- MplusAutomation::readModels(target="formplus.out")
+summary(penguinsResults)
+print(penguinsResults$parameters)
+```
+
+<!-- End -->
